@@ -1,0 +1,21 @@
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# CMake / VS CMake output
+out/
+build/
+cmake-build-*/
+
+# Compiled outputs
+*.obj
+*.pdb
+*.ilk
+*.idb
+*.exe
+*.dll
+*.lib
+
+# Optional
+.DS_Store
