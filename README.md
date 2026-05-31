@@ -1,4 +1,4 @@
-# Smoothed Particle Hydrodynamics
+# Real-time Smoothed Particle Hydrodynamics Solver
 
 A small C++20 Smoothed Particle Hydrodynamics (SPH) fluid simulation rendered with OpenGL. The project simulates a block of fluid particles in a 2D unit domain using density estimation, Tait equation-of-state pressure, viscosity, gravity, ghost-particle wall handling, and a spatial hash grid for neighbor lookup.
 
@@ -39,17 +39,6 @@ If you are using Visual Studio's CMake integration, you can also open the folder
 
 After building, run the generated `sph` executable from the build output directory. The exact path depends on your CMake generator and configuration.
 
-Common Visual Studio multi-config path:
-
-```powershell
-.\out\build\Debug\sph.exe
-```
-
-Common single-config path:
-
-```powershell
-.\out\build\sph.exe
-```
 
 ## Controls
 
@@ -63,14 +52,16 @@ Common single-config path:
 src/
   main.cpp                  Application entry point, window loop, controls
   sph/
-    solver.*                SPH simulation update, density, pressure, forces
-    particle.*              Particle data types
-    render.*                OpenGL renderer
-    spatial_hash_grid.*     Neighbor search acceleration structure
+    solver.cpp              SPH simulation update, density, pressure, forces
+    particle.cpp            Particle data types
+    render.cpp              OpenGL renderer
+    spatial_hash_grid.cpp   Neighbor search acceleration structure
     kernels.hpp             SPH smoothing kernels
     time_manager.hpp        Fixed timestep helper
     math/vec2.hpp           2D vector math
 ```
+
+
 
 ## Mathematical Model
 Properties such as density, pressure, and viscosity at a point in the fluid are evaluated by summing the influences from nearby particles using a smoothing function. In SPH the properties are approximated by:
@@ -235,6 +226,51 @@ $$
 \nabla W(\mathbf{r}_{ij}, h)
 \right)
 $$
+
+## Neighbor Search Algorithm
+
+SPH only needs interactions between particles within the smoothing length, `h`. This project uses a spatial hash grid to reduce the number of distance checks.
+
+The simulation domain is divided into square grid cells with side length equal to the smoothing length:
+
+$$
+\text{cell size} = h
+$$
+
+Each particle position is converted into integer grid coordinates:
+
+$$
+i_x = \left\lfloor \frac{x}{h} \right\rfloor
+$$
+
+$$
+i_y = \left\lfloor \frac{y}{h} \right\rfloor
+$$
+
+The integer cell coordinate is then converted into a hash key:
+
+$$
+\text{hash}(i_x, i_y) =
+(i_x \cdot 83492791) \oplus (i_y \cdot 2654435761)
+$$
+
+where $\oplus$ is the bitwise XOR operation. The grid stores a map from each hash key to the list of particle indices inside that cell.
+
+At the beginning of each update, the solver clears and rebuilds the grid. Every particle is inserted into the cell containing its current position. When finding neighbors for particle `i`, the solver checks the particle's own cell and the eight surrounding cells:
+
+$$
+(i_x + a, i_y + b),
+\qquad
+a,b \in \{-1, 0, 1\}
+$$
+
+This gives a maximum of nine grid cells to search. Particles found in those cells are then filtered by distance, so only particles with:
+
+$$
+\lVert \mathbf{r}_i - \mathbf{r}_j \rVert < h
+$$
+
+contribute to the SPH density, pressure, and viscosity calculations.
 
 ### Time Integration
 
