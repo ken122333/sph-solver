@@ -20,6 +20,10 @@ void spatial_grid::clear() {
     data.clear();
 }
 
+void spatial_grid::reserve(size_t cell_count) {
+    data.reserve(cell_count);
+}
+
 // Returns the list of particle indices stored in a grid cell
 const std::vector<int>* spatial_grid::get_cell(int hash) const {
     auto it = data.find(hash);
@@ -30,15 +34,18 @@ const std::vector<int>* spatial_grid::get_cell(int hash) const {
 }
 
 // Returns hashes for the current cell and all surrounding cells
-std::vector<int> spatial_grid::get_neighbor_hashes(vec2 pos) {
-    std::vector<int> hashes;
+std::array<int, 9> spatial_grid::get_neighbor_hashes(vec2 pos) const {
+    std::array<int, 9> hashes{};
     int ix = static_cast<int>(std::floor(pos.x / h));
     int iy = static_cast<int>(std::floor(pos.y / h));
 
+    int index = 0;
+
     for (int x = ix - 1; x <= ix + 1; ++x) {
         for (int y = iy - 1; y <= iy + 1; ++y) {
-            hashes.push_back((x * 83492791) ^ (y * 2654435761));
+            hashes[index++] = (x * 83492791) ^ (y * 2654435761);
         }
     }
+
     return hashes;
 }

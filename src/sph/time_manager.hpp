@@ -5,7 +5,7 @@
 struct time_manager
 {
     double dt_fixed = 0.0005;
-    int    max_substeps = 8;
+    int    max_substeps = 16;
     double max_frame_time = 0.1;
     bool   paused = false;
     double time_scale = 1.0;

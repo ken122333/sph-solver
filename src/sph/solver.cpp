@@ -76,7 +76,7 @@ void solver::solve_acceleration(particle& pi) {
     vec2 acc = g;
 
     // Get nearby grid cells around the particle
-    std::vector<int> neighborHashes = grid.get_neighbor_hashes(pi.x);
+    auto neighborHashes = grid.get_neighbor_hashes(pi.x);
 
     for (int hash : neighborHashes) {
         const std::vector<int>* neighbor_particles = grid.get_cell(hash);
@@ -88,11 +88,11 @@ void solver::solve_acceleration(particle& pi) {
                 // Calculate distance between neighbor particle and target particle
                 vec2 rij = pi.x - pj.x;
                 float r2 = len2(rij);
-                float r = std::sqrt(r2);
-                if (r < 1e-6f)
+                if (r2 < 1e-12f)
                     continue;
                 //Ignore particles further than the smoothing length
-                if (r < h) {
+                if (r2 < h * h) {
+                    float r = std::sqrt(r2);
                     vec2 gradW = kernels::grad_W_spiky(rij, r);
                     // Symmetric SPH pressure term
                     float pressure_term = (pi.p / (pi.rho * pi.rho) + pj.p / (pj.rho * pj.rho));
@@ -119,7 +119,7 @@ void solver::solve_acceleration(particle& pi) {
                     float avg_mu = nu; // (pi.mu + pj.mu) / 2.0f for dynamic viscosity
                     float dot_product = dot(rij, gradW);
                     float eta2 = 0.01f * h * h;
-                    float scalar_term = 2.0f * (pj.m / pj.rho) * (avg_mu) / (r*r + eta2);
+                    float scalar_term = 2.0f * (pj.m / pj.rho) * (avg_mu) / (r2 + eta2);
                     vec2 vij = pj.v - pi.v;
                     acc = acc - vij * (scalar_term * dot_product);
                 }
@@ -136,7 +136,7 @@ void solver::solve_density(particle& pi) {
     pi.rho = 0.0f;
 
     // Find neighboring grid cells
-    std::vector<int> neighborHashes = grid.get_neighbor_hashes(pi.x);
+    auto neighborHashes = grid.get_neighbor_hashes(pi.x);
 
     for (int hash : neighborHashes) {
         const std::vector<int>* neighbor_particles = grid.get_cell(hash);
@@ -148,11 +148,9 @@ void solver::solve_density(particle& pi) {
                 const particle& pj = search_particles[pj_index];
                 vec2 rij = pi.x - pj.x;
                 float r2 = len2(rij);
-                float r = std::sqrt(r2);
-
                 //Ignore particles further than the smoothing length
-                if (r < h) {
-                    pi.rho += pj.m * kernels::W_poly6(r);
+                if (r2 < h * h) {
+                    pi.rho += pj.m * kernels::W_poly6_r2(r2);
                 }
             }
         }
@@ -179,6 +177,40 @@ bool near_top_wall(const particle& p, const domain& dom, float h)
     return (dom.ymax - p.x.y) < h;
 }
 
+static void enforce_boundary(particle& p, const domain& dom)
+{
+    constexpr float damping = 0.4f;
+    constexpr float eps = 0.001f;
+
+    if (p.x.x < dom.xmin)
+    {
+        p.x.x = dom.xmin + eps;
+        p.v.x *= -damping;
+        p.v_half.x *= -damping;
+    }
+
+    if (p.x.x > dom.xmax)
+    {
+        p.x.x = dom.xmax - eps;
+        p.v.x *= -damping;
+        p.v_half.x *= -damping;
+    }
+
+    if (p.x.y < dom.ymin)
+    {
+        p.x.y = dom.ymin + eps;
+        p.v.y *= -damping;
+        p.v_half.y *= -damping;
+    }
+
+    if (p.x.y > dom.ymax)
+    {
+        p.x.y = dom.ymax - eps;
+        p.v.y *= -damping;
+        p.v_half.y *= -damping;
+    }
+}
+
 
 particle solver::create_ghost_particle(const particle& p, vec2 pos, vec2 vel) {
     particle ghost = p;
@@ -192,17 +224,34 @@ particle solver::create_ghost_particle(const particle& p, vec2 pos, vec2 vel) {
 }
 void solver::create_ghost_particle_boundary(const particle& p, const domain& dom, float h, std::vector<particle>& particles)
 {
+    const bool near_bottom = near_bottom_wall(p, dom, h);
+    const bool near_top = near_top_wall(p, dom, h);
+    const bool near_left = near_left_wall(p, dom, h);
+    const bool near_right = near_right_wall(p, dom, h);
 
-    if (near_bottom_wall(p, dom, h))
+    if (near_bottom)
         particles.push_back(create_ghost_particle(p, vec2(p.x.x, 2 * dom.ymin - p.x.y), vec2(p.v.x, -p.v.y)));
-    else if (near_top_wall(p, dom, h))
+
+    if (near_top)
         particles.push_back(create_ghost_particle(p, vec2(p.x.x, 2 * dom.ymax - p.x.y), vec2(p.v.x, -p.v.y)));
-    if (near_left_wall(p, dom, h))
+
+    if (near_left)
         particles.push_back(create_ghost_particle(p, vec2(2 * dom.xmin - p.x.x, p.x.y), vec2(-p.v.x, p.v.y)));
-    else if (near_right_wall(p, dom, h))
+
+    if (near_right)
         particles.push_back(create_ghost_particle(p, vec2(2 * dom.xmax - p.x.x, p.x.y), vec2(-p.v.x, p.v.y)));
 
-   
+    if (near_bottom && near_left)
+        particles.push_back(create_ghost_particle(p, vec2(2 * dom.xmin - p.x.x, 2 * dom.ymin - p.x.y), vec2(-p.v.x, -p.v.y)));
+
+    if (near_bottom && near_right)
+        particles.push_back(create_ghost_particle(p, vec2(2 * dom.xmax - p.x.x, 2 * dom.ymin - p.x.y), vec2(-p.v.x, -p.v.y)));
+
+    if (near_top && near_left)
+        particles.push_back(create_ghost_particle(p, vec2(2 * dom.xmin - p.x.x, 2 * dom.ymax - p.x.y), vec2(-p.v.x, -p.v.y)));
+
+    if (near_top && near_right)
+        particles.push_back(create_ghost_particle(p, vec2(2 * dom.xmax - p.x.x, 2 * dom.ymax - p.x.y), vec2(-p.v.x, -p.v.y)));
 }
 
 void solver::integrate(particle& p, float dt) {
@@ -232,6 +281,8 @@ void solver::update(float dt)
         if (particles[i].type == particle_type::fluid)
             create_ghost_particle_boundary(particles[i], dom, h, ghost_particles);
     }
+
+    grid.reserve(particles.size() + ghost_particles.size());
     search_particles.reserve(particles.size() + ghost_particles.size());
     for (const particle& p : particles)
         search_particles.push_back(p);
@@ -284,7 +335,7 @@ void solver::update(float dt)
         // Ignore boundary particles
         if (p.type == particle_type::boundary) continue;
         solver::integrate(p, dt);
-        
+        enforce_boundary(p, dom);
 
     }
 }

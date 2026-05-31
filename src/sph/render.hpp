@@ -26,7 +26,6 @@ private:
 
     GLint p_uPointSize = -1;
     GLint p_uAspect = -1;
-    GLint p_uColor = -1;
 
     GLint l_uAspect = -1;
     GLint l_uColor = -1;

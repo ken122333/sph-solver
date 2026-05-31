@@ -44,6 +44,8 @@ After building, run the generated `sph` executable from the build output directo
 
 - `P`: pause or resume the simulation
 - `R`: respawn the fluid block
+- `Left mouse`: repel nearby particles
+- `Right mouse`: pull a clump of nearby particles toward the cursor
 - `Esc`: close the window
 
 ## Project Layout

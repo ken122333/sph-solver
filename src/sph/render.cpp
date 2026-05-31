@@ -1,5 +1,7 @@
 #include "render.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <cstdio>
 #include <vector>
 
@@ -86,23 +88,32 @@ bool renderer::init(const solver& solver, const domain& dom)
     const char* vs_points = R"GLSL(
         #version 330 core
         layout (location = 0) in vec2 aPos;
+        layout (location = 1) in vec3 aColor;
         uniform float uPointSizePx;
         uniform vec2  uAspectScale;
+        out vec3 vColor;
 
         void main() {
             vec2 p = aPos * uAspectScale;
             gl_Position = vec4(p, 0.0, 1.0);
             gl_PointSize = uPointSizePx;
+            vColor = aColor;
         }
     )GLSL";
 
     const char* fs_points = R"GLSL(
         #version 330 core
         out vec4 FragColor;
-        uniform vec3 uColor;
+        in vec3 vColor;
 
         void main() {
-            FragColor = vec4(uColor, 1.0);
+            vec2 centered = gl_PointCoord * 2.0 - 1.0;
+            float radius2 = dot(centered, centered);
+
+            if (radius2 > 1.0)
+                discard;
+
+            FragColor = vec4(vColor, 1.0);
         }
     )GLSL";
 
@@ -148,7 +159,6 @@ bool renderer::init(const solver& solver, const domain& dom)
 
     p_uPointSize = glGetUniformLocation(prog_points, "uPointSizePx");
     p_uAspect = glGetUniformLocation(prog_points, "uAspectScale");
-    p_uColor = glGetUniformLocation(prog_points, "uColor");
 
     l_uAspect = glGetUniformLocation(prog_lines, "uAspectScale");
     l_uColor = glGetUniformLocation(prog_lines, "uColor");
@@ -161,7 +171,7 @@ bool renderer::init(const solver& solver, const domain& dom)
 
     glBufferData(
         GL_ARRAY_BUFFER,
-        (GLsizeiptr)(solver.particles.size() * 2 * sizeof(float)),
+        (GLsizeiptr)(solver.particles.size() * 5 * sizeof(float)),
         nullptr,
         GL_DYNAMIC_DRAW
     );
@@ -172,8 +182,18 @@ bool renderer::init(const solver& solver, const domain& dom)
         2,
         GL_FLOAT,
         GL_FALSE,
-        2 * (GLsizei)sizeof(float),
+        5 * (GLsizei)sizeof(float),
         (void*)0
+    );
+
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(
+        1,
+        3,
+        GL_FLOAT,
+        GL_FALSE,
+        5 * (GLsizei)sizeof(float),
+        (void*)(2 * sizeof(float))
     );
 
     glBindVertexArray(0);
@@ -216,7 +236,7 @@ void renderer::resize_particle_buffer(const solver& solver)
 
     glBufferData(
         GL_ARRAY_BUFFER,
-        (GLsizeiptr)(solver.particles.size() * 2 * sizeof(float)),
+        (GLsizeiptr)(solver.particles.size() * 5 * sizeof(float)),
         nullptr,
         GL_DYNAMIC_DRAW
     );
@@ -225,12 +245,18 @@ void renderer::resize_particle_buffer(const solver& solver)
 void renderer::upload_particles(const solver& solver, const domain& dom)
 {
     scratch.clear();
-    scratch.reserve(solver.particles.size() * 2);
+    scratch.reserve(solver.particles.size() * 5);
 
     for (const auto& p : solver.particles)
     {
+        float speed = std::sqrt(p.v.x * p.v.x + p.v.y * p.v.y);
+        float t = std::min(speed / 4.0f, 1.0f);
+
         scratch.push_back(to_ndc(p.x.x, dom.xmin, dom.xmax));
         scratch.push_back(to_ndc(p.x.y, dom.ymin, dom.ymax));
+        scratch.push_back(0.1f + 0.9f * t);
+        scratch.push_back(0.8f * (1.0f - std::abs(t - 0.5f) * 2.0f));
+        scratch.push_back(1.0f - 0.8f * t);
     }
 
     glBindBuffer(GL_ARRAY_BUFFER, vboP);
@@ -270,7 +296,6 @@ void renderer::render(
     glUseProgram(prog_points);
     glUniform1f(p_uPointSize, point_size_px);
     glUniform2f(p_uAspect, sx, sy);
-    glUniform3f(p_uColor, 0.2f, 0.8f, 1.0f);
 
     glBindVertexArray(vaoP);
     glDrawArrays(GL_POINTS, 0, (GLsizei)solver.particles.size());

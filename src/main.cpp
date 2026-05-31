@@ -1,4 +1,6 @@
 #include <cstdio>
+#include <algorithm>
+#include <cmath>
 #include <string>
 
 #include <glad/gl.h>
@@ -27,6 +29,98 @@ static bool key_pressed(GLFWwindow* w, int key)
     return pressed;
 }
 
+static bool cursor_to_domain(GLFWwindow* window, const domain& dom, vec2& out_pos)
+{
+    double cursor_x = 0.0;
+    double cursor_y = 0.0;
+    glfwGetCursorPos(window, &cursor_x, &cursor_y);
+
+    int window_width = 0;
+    int window_height = 0;
+    glfwGetWindowSize(window, &window_width, &window_height);
+
+    if (window_width <= 0 || window_height <= 0)
+        return false;
+
+    float ndc_x = (float)(cursor_x / (double)window_width) * 2.0f - 1.0f;
+    float ndc_y = 1.0f - (float)(cursor_y / (double)window_height) * 2.0f;
+
+    int framebuffer_width = 0;
+    int framebuffer_height = 0;
+    glfwGetFramebufferSize(window, &framebuffer_width, &framebuffer_height);
+
+    float aspect = framebuffer_height > 0
+        ? (float)framebuffer_width / (float)framebuffer_height
+        : 1.0f;
+
+    float sx = 1.0f;
+    float sy = 1.0f;
+
+    if (aspect >= 1.0f)
+        sx = 1.0f / aspect;
+    else
+        sy = aspect;
+
+    float sim_x = (ndc_x / sx) / 0.9f;
+    float sim_y = (ndc_y / sy) / 0.9f;
+
+    out_pos.x = dom.xmin + ((sim_x + 1.0f) * 0.5f) * (dom.xmax - dom.xmin);
+    out_pos.y = dom.ymin + ((sim_y + 1.0f) * 0.5f) * (dom.ymax - dom.ymin);
+
+    return true;
+}
+
+static void apply_mouse_interaction(GLFWwindow* window, solver& solver, const domain& dom, float dt)
+{
+    bool repel = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+    bool attract = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT) == GLFW_PRESS;
+
+    if (!repel && !attract)
+        return;
+
+    vec2 cursor;
+    if (!cursor_to_domain(window, dom, cursor))
+        return;
+
+    constexpr float radius = 0.3f;
+    constexpr float radius2 = radius * radius;
+    constexpr float repel_strength = 100.0f;
+    constexpr float attract_strength = 100.0f;
+    constexpr float grab_damping = 5.0f;
+
+    for (auto& p : solver.particles)
+    {
+        if (p.type != particle_type::fluid)
+            continue;
+
+        vec2 to_particle = p.x - cursor;
+        float d2 = len2(to_particle);
+
+        if (d2 >= radius2)
+            continue;
+
+        float distance = std::sqrt(std::max(d2, 1.0e-8f));
+        float falloff = 1.0f - distance / radius;
+        falloff *= falloff;
+
+        vec2 direction = to_particle / distance;
+        vec2 delta_v = { 0.0f, 0.0f };
+
+        if (repel)
+            delta_v = delta_v + direction * (repel_strength * falloff * dt);
+
+        if (attract)
+        {
+            vec2 to_cursor = -direction;
+            delta_v = delta_v + to_cursor * (attract_strength * falloff * dt);
+            delta_v = delta_v - p.v * (grab_damping * falloff * dt);
+        }
+
+        p.v = p.v + delta_v;
+        p.v_half = p.v_half + delta_v;
+    }
+}
+int particle_count = 0;
 int main()
 {
     glfwSetErrorCallback(glfw_error_callback);
@@ -105,8 +199,7 @@ int main()
     }
 
     time_manager stepper;
-    stepper.dt_fixed = 0.001f;
-
+    stepper.dt_fixed = 0.0005f;
     double last_time = glfwGetTime();
     double fps_time = glfwGetTime();
     double print_timer = 0.0;
@@ -124,7 +217,7 @@ int main()
             double fps = frame_count / (current_time - fps_time);
 
             std::string title =
-                "SPH Simulation - FPS: " + std::to_string((int)fps);
+                "SPH Simulation - FPS: " + std::to_string((int)fps) +" - Particle Count: " +std::to_string((int)solver.particles.size());
 
             glfwSetWindowTitle(window, title.c_str());
 
@@ -150,13 +243,14 @@ int main()
         double frame_dt = now - last_time;
         last_time = now;
 
-        stepper.reset_budget(8);
+        stepper.reset_budget(16);
         stepper.begin_frame(frame_dt);
 
         double dt;
 
         while (stepper.step(dt))
         {
+            apply_mouse_interaction(window, solver, dom, (float)dt);
             solver.update((float)dt);
         }
 
@@ -169,7 +263,7 @@ int main()
             print_timer = 0.0;
 
             const auto& p0 = solver.particles[0];
-
+            
             std::printf(
                 "p0: x=(%.3f, %.3f) v=(%.3f, %.3f) rho=%.1f p=%.1f\n",
                 p0.x.x,

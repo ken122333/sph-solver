@@ -5,8 +5,8 @@
 
 // SPH parameters
 static constexpr float rho0 = 1000.0f;   // rest density
-static constexpr float h = 0.05f;      // smoothing length (~2*dx)
-static constexpr float c0 = 5.0f;      // speed of sound
+static constexpr float h = 0.04f;      // smoothing length (~2*dx)
+static constexpr float c0 = 10.0f;      // speed of sound
 static constexpr float gamma = 7.0f;
 static constexpr float nu = 0.03f;       // viscosity
 static const vec2 g = { 0.0f, -9.81f };  // gravity
