@@ -1,5 +1,9 @@
 # Real-time Smoothed Particle Hydrodynamics Solver
 
+<p align="center">
+  <img src="images/preview.png" alt="SPH fluid simulation preview" width="700">
+</p>
+
 A small C++20 Smoothed Particle Hydrodynamics (SPH) fluid simulation rendered with OpenGL. The project simulates a block of fluid particles in a 2D unit domain using density estimation, Tait equation-of-state pressure, viscosity, gravity, ghost-particle wall handling, and a spatial hash grid for neighbor lookup.
 
 ## Features
